@@ -1,0 +1,362 @@
+:root {
+  color-scheme: light dark;
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --border: #d9dde3;
+  --text: #16191d;
+  --muted: #626d7a;
+  --accent: #2f6fd0;
+  --warn: #a15c00;
+  --danger: #b3261e;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #15171a;
+    --surface: #1e2126;
+    --border: #333941;
+    --text: #eceef1;
+    --muted: #98a2ae;
+    --accent: #6ea8ff;
+    --warn: #e0a458;
+    --danger: #ff8a80;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+input,
+select,
+textarea {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.5rem 0.6rem;
+  width: 100%;
+}
+
+button {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.5rem 0.9rem;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+button.ghost {
+  background: transparent;
+}
+
+label {
+  display: block;
+  margin-bottom: 0.75rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+label input,
+label textarea,
+label select {
+  margin-top: 0.25rem;
+  color: var(--text);
+}
+
+a {
+  color: var(--accent);
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin: 0.25rem 0;
+}
+
+.error {
+  color: var(--danger);
+  margin: 0.5rem 1.5rem;
+}
+
+.status {
+  color: var(--accent);
+  font-size: 0.85rem;
+}
+
+.loading,
+.empty {
+  padding: 3rem 1.5rem;
+  color: var(--muted);
+}
+
+/* Login */
+.login {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  padding: 1.5rem;
+}
+
+.login__card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 2rem;
+  width: min(26rem, 100%);
+}
+
+.login__card h1 {
+  margin-top: 0;
+  font-size: 1.35rem;
+}
+
+.login__lede {
+  color: var(--muted);
+  font-size: 0.9rem;
+  margin-bottom: 1.5rem;
+}
+
+.login__card button {
+  width: 100%;
+}
+
+/* Layout */
+.layout {
+  min-height: 100vh;
+}
+
+.layout__body {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+  padding: 0 1.5rem 3rem;
+}
+
+@media (min-width: 60rem) {
+  .layout__body:has(.detail) {
+    grid-template-columns: minmax(0, 1fr) 24rem;
+  }
+}
+
+/* Toolbar */
+.toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 1rem 1.5rem;
+}
+
+.toolbar h1 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.toolbar__row {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: space-between;
+}
+
+.toolbar__actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.toolbar__filters {
+  margin-top: 0.75rem;
+  justify-content: flex-start;
+}
+
+.toolbar__filters input[type='search'] {
+  flex: 1 1 18rem;
+}
+
+.toolbar__filters select {
+  width: auto;
+}
+
+.toolbar__status {
+  margin-top: 0.5rem;
+}
+
+.checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  white-space: nowrap;
+}
+
+.checkbox input {
+  width: auto;
+}
+
+/* Grid */
+.grid {
+  list-style: none;
+  margin: 1.5rem 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  gap: 1rem;
+  /* The detail panel is a taller sibling column; without this the grid's auto
+     rows stretch to match it and wrapped cards drift far below the first row. */
+  align-content: start;
+}
+
+.load-more {
+  display: block;
+  margin: 1.5rem auto 0;
+}
+
+.card {
+  width: 100%;
+  text-align: left;
+  padding: 0.5rem;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.card--selected {
+  border-color: var(--accent);
+  outline: 2px solid var(--accent);
+}
+
+.card__frame {
+  display: block;
+  aspect-ratio: 4 / 3;
+  background: var(--bg);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.card__frame img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.card__name {
+  font-size: 0.85rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card__meta {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+/* Detail panel */
+.detail {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1rem;
+  margin-top: 1.5rem;
+  align-self: start;
+  position: sticky;
+  /* Follows the sticky toolbar, which is measured at runtime; the fallback
+     covers the first paint before the observer reports. */
+  top: calc(var(--toolbar-height, 9rem) + 1rem);
+  max-height: calc(100vh - var(--toolbar-height, 9rem) - 3rem);
+  overflow-y: auto;
+}
+
+.detail__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.detail__header h2 {
+  font-size: 1rem;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.detail__preview {
+  width: 100%;
+  border-radius: 6px;
+  background: var(--bg);
+}
+
+.detail__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin: 0.75rem 0;
+}
+
+.detail h3 {
+  font-size: 0.9rem;
+  margin-bottom: 0.5rem;
+}
+
+.references {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.references li {
+  font-size: 0.85rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.tag {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.1rem 0.5rem;
+  color: var(--muted);
+}
+
+.tag--warn {
+  color: var(--warn);
+  border-color: var(--warn);
+}
