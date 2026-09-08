@@ -3,11 +3,14 @@ import type { Database } from '../db/index.js';
 import type { Config } from '../config.js';
 import type { AppSession, SessionStore } from '../sessions.js';
 import { SESSION_COOKIE_NAME } from '../sessions.js';
+import type { FetchImpl } from '../ghost/client.js';
 
 export interface AppContext {
   db: Database;
   config: Config;
   sessions: SessionStore;
+  /** `fetch` for the Ghost sign-in calls; the global one in production. */
+  loginFetch: FetchImpl;
 }
 
 declare module 'express-serve-static-core' {
