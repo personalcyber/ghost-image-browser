@@ -3,13 +3,14 @@ import { useState, type FormEvent } from 'react';
 interface Props {
   /** Set when the deployment is pinned to one site via GHOST_URL. */
   lockedSiteUrl: string | null;
-  onSubmit: (siteUrl: string, email: string, password: string) => Promise<void>;
+  /** Prefill for the site field, remembered from the last successful sign-in. */
+  initialSiteUrl: string;
+  onSubmit: (siteUrl: string, token: string) => Promise<void>;
 }
 
-export function LoginForm({ lockedSiteUrl, onSubmit }: Props) {
-  const [siteUrl, setSiteUrl] = useState(lockedSiteUrl ?? '');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+export function LoginForm({ lockedSiteUrl, initialSiteUrl, onSubmit }: Props) {
+  const [siteUrl, setSiteUrl] = useState(lockedSiteUrl ?? initialSiteUrl);
+  const [token, setToken] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -18,9 +19,9 @@ export function LoginForm({ lockedSiteUrl, onSubmit }: Props) {
     setBusy(true);
     setError(null);
     try {
-      await onSubmit(siteUrl, email, password);
+      await onSubmit(siteUrl, token.trim());
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Sign-in failed.');
+      setError(cause instanceof Error ? cause.message : 'That staff token was not accepted.');
     } finally {
       setBusy(false);
     }
@@ -31,8 +32,8 @@ export function LoginForm({ lockedSiteUrl, onSubmit }: Props) {
       <form className="login__card" onSubmit={handleSubmit}>
         <h1>Ghost Image Browser</h1>
         <p className="login__lede">
-          Sign in with your Ghost staff account. Your credentials go straight to your Ghost site and
-          are never stored here.
+          Sign in with your Ghost <strong>Staff Access Token</strong> — copy it from your profile
+          page in Ghost admin. It works as you, with your role, and never leaves this server.
         </p>
 
         {!lockedSiteUrl && (
@@ -51,24 +52,14 @@ export function LoginForm({ lockedSiteUrl, onSubmit }: Props) {
         )}
 
         <label>
-          Email
-          <input
-            type="email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
+          Staff Access Token
+          <textarea
+            rows={3}
+            value={token}
+            onChange={(event) => setToken(event.target.value)}
+            placeholder="653f…:9a1c…"
             required
-            autoComplete="username"
-          />
-        </label>
-
-        <label>
-          Password
-          <input
-            type="password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            required
-            autoComplete="current-password"
+            autoFocus
           />
         </label>
 
@@ -78,7 +69,7 @@ export function LoginForm({ lockedSiteUrl, onSubmit }: Props) {
           </p>
         )}
 
-        <button type="submit" disabled={busy}>
+        <button type="submit" disabled={busy || token.trim() === ''}>
           {busy ? 'Signing in…' : 'Sign in'}
         </button>
       </form>

@@ -44,10 +44,11 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 export const api = {
   me: () => request<AuthState>('/auth/me'),
 
-  login: (siteUrl: string, email: string, password: string) =>
-    request<AuthState>('/auth/login', {
+  /** Sign in with a Ghost Staff Access Token (`id:secret`) from the user's profile. */
+  staffTokenLogin: (siteUrl: string, token: string) =>
+    request<AuthState>('/auth/staff-token', {
       method: 'POST',
-      body: JSON.stringify({ siteUrl, email, password }),
+      body: JSON.stringify({ siteUrl, token }),
     }),
 
   logout: () => request<AuthState>('/auth/logout', { method: 'POST' }),

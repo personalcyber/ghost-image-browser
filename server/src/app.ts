@@ -2,10 +2,20 @@ import express, { type ErrorRequestHandler } from 'express';
 import type { Database } from './db/index.js';
 import type { Config } from './config.js';
 import { SessionStore } from './sessions.js';
+import type { FetchImpl } from './ghost/client.js';
 import { authRoutes } from './routes/auth.js';
 import { imageRoutes } from './routes/images.js';
 import { syncRoutes } from './routes/sync.js';
 import type { AppContext } from './routes/context.js';
+
+interface AppOptions {
+  // Lets `index.ts` mount the static UI + SPA fallback *before* the error
+  // handler, so a failure serving those still produces a JSON 500 rather than
+  // Express's default HTML handler.
+  mountExtra?: (app: express.Express) => void;
+  /** `fetch` used for the Ghost sign-in calls; injected in tests. */
+  loginFetch?: FetchImpl;
+}
 
 /**
  * Builds the API. Kept separate from `index.ts` so tests can mount it on an
@@ -15,13 +25,10 @@ export function createApp(
   db: Database,
   config: Config,
   sessions = new SessionStore(config.sessionTtlMs),
-  // Lets `index.ts` mount the static UI + SPA fallback *before* the error
-  // handler, so a failure serving those still produces a JSON 500 rather than
-  // Express's default HTML handler.
-  mountExtra?: (app: express.Express) => void,
+  { mountExtra, loginFetch = fetch }: AppOptions = {},
 ) {
   const app = express();
-  const context: AppContext = { db, config, sessions };
+  const context: AppContext = { db, config, sessions, loginFetch };
 
   app.disable('x-powered-by');
   // Governs `req.secure` / `req.protocol` behind a TLS-terminating proxy, which

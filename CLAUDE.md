@@ -7,7 +7,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 A browser UI that catalogs every image on a Ghost CMS site: which posts and
 pages reference each image, plus extra details (alt text, caption, credit,
 licence, tags, notes) that Ghost has nowhere to store. Users sign in with their
-Ghost **staff email and password** — not an integration API key.
+personal **Staff Access Token** (from their Ghost profile page) — bound to their
+own account and role, not a shared integration API key.
 
 ## Commands
 
@@ -45,9 +46,12 @@ change a response shape in `server/src/catalog/repo.ts`, update
 Request flow for the one thing this app does:
 
 ```
-LoginForm → POST /api/auth/login → GhostAdminClient.login()
-                                     → POST {site}/ghost/api/admin/session/
-                                     → Ghost session cookie kept in SessionStore
+LoginForm → POST /api/auth/staff-token → GhostAdminClient.fromStaffToken()
+                                     → validate id:secret shape
+                                     → getSite() + getCurrentUser() prove the token
+                                     → staff token kept in SessionStore; browser gets
+                                       an opaque gib_session id
+                                     (client signs Authorization: Ghost <jwt> per call)
 Toolbar "Sync" → POST /api/sync → syncCatalog()
                                      → client.browse('posts'|'pages')  (paginated)
                                      → extractImages() per resource
@@ -61,7 +65,8 @@ Key modules:
 
 - `server/src/ghost/urls.ts` — URL canonicalization. The heart of the catalog.
 - `server/src/ghost/extract.ts` — pulls image URLs out of a post or page.
-- `server/src/ghost/client.ts` — Ghost Admin API over a staff session cookie.
+- `server/src/ghost/client.ts` — Ghost Admin API as a staff member, via a
+  per-request JWT signed from the user's Staff Access Token.
 - `server/src/catalog/sync.ts` — orchestrates a scan; owns the pruning rule.
 - `server/src/catalog/repo.ts` — all SQL. Nothing else in the app writes SQL.
 - `web/src/lib/snippet.ts` — reuse snippets and Ghost responsive-thumbnail URLs.
@@ -96,9 +101,10 @@ user-authored data.
 re-uploads to the same path.
 
 **Ghost credentials never reach the browser.** `SessionStore` (in-memory) holds
-the Ghost session cookie; the browser gets an opaque random id in an httpOnly
-cookie. Sessions therefore do not survive a server restart — that is intended,
-not a bug to fix by persisting them.
+the user's Staff Access Token; the browser gets an opaque random id in an
+httpOnly cookie. Sessions therefore do not survive a server restart — that is
+intended, not a bug to fix by persisting them. (The web client does remember the
+_site URL_ in `localStorage` to prefill the login field — never the token.)
 
 **`assumeImage` is load-bearing in extraction.** A lexical card's `src` may be an
 mp4; an `<img>` tag's `src` is definitionally an image. Extension-less CDN URLs
@@ -120,7 +126,13 @@ feature` on every run — expected, not a problem to chase.
 - **Tests use `openDatabase(':memory:')`** and a `CatalogSource` stub — no test
   touches a real Ghost site or the filesystem. Keep it that way; `CatalogSource`
   exists precisely so `syncCatalog` is testable.
-- Ghost accounts with 2FA cannot sign in (Ghost demands a one-time code this flow
-  cannot supply). `GhostAdminClient.login` detects this and returns a specific
-  message — preserve it, it is the difference between "wrong password" and
-  "impossible".
+- **Staff Access Token is the only sign-in.** `POST /api/auth/staff-token` takes
+  the `id:secret` pair from a user's Ghost profile page.
+  `GhostAdminClient.fromStaffToken` validates the shape (bad format → 400, no
+  call to Ghost); the client then signs a fresh 5-minute HS256 JWT (`kid` header,
+  `/admin/` audience — the `@tryghost/admin-api` scheme, done with `node:crypto`,
+  no jsonwebtoken dep) as `Authorization: Ghost <jwt>` on every request. This is
+  **not** a shared integration key: the token is bound to one user, so per-role
+  visibility holds. There is no password/2FA/session-cookie path — a token needs
+  no `Origin`, dodges Ghost's login rate limiter, and does not expire until the
+  user regenerates it in Ghost.

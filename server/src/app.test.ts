@@ -133,4 +133,89 @@ describe('HTTP API', () => {
     );
     expect(app.get('trust proxy')).toBe(true);
   });
+
+  describe('sign-in with a staff token', () => {
+    const GOOD_ID = 'a'.repeat(24);
+    const GOOD_TOKEN = `${GOOD_ID}:${'b'.repeat(64)}`;
+    let server2: Server;
+    let url2: string;
+
+    // Ghost that only recognises a JWT signed with key id GOOD_ID.
+    const tokenAwareGhost = (): typeof fetch =>
+      (async (input: string | URL, init?: RequestInit) => {
+        const { pathname } = new URL(String(input));
+        const auth = ((init?.headers ?? {}) as Record<string, string>).Authorization ?? '';
+        if (pathname === '/ghost/api/admin/site/') {
+          return new Response(
+            JSON.stringify({ site: { title: 'Blog', url: SITE, version: '5.0' } }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          );
+        }
+        if (pathname === '/ghost/api/admin/users/me/') {
+          const header = auth.startsWith('Ghost ') ? auth.slice(6).split('.')[0] : '';
+          const kid = header
+            ? (JSON.parse(Buffer.from(header, 'base64url').toString()) as { kid?: string }).kid
+            : undefined;
+          if (kid !== GOOD_ID) {
+            return new Response(
+              JSON.stringify({ errors: [{ message: 'Unknown Admin API Key' }] }),
+              {
+                status: 401,
+              },
+            );
+          }
+          return new Response(
+            JSON.stringify({ users: [{ email: 'staff@example.com', roles: [{ name: 'Owner' }] }] }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          );
+        }
+        throw new Error(`tokenAwareGhost: unexpected ${pathname}`);
+      }) as unknown as typeof fetch;
+
+    beforeEach(async () => {
+      const config = loadConfig({ DATABASE_PATH: ':memory:' } as NodeJS.ProcessEnv);
+      server2 = createApp(db, config, new SessionStore(config.sessionTtlMs), {
+        loginFetch: tokenAwareGhost(),
+      }).listen(0);
+      await new Promise((resolve) => server2.once('listening', resolve));
+      url2 = `http://127.0.0.1:${(server2.address() as AddressInfo).port}`;
+    });
+
+    afterEach(async () => {
+      await new Promise((resolve) => server2.close(resolve));
+    });
+
+    it('signs in when the staff token is one Ghost accepts', async () => {
+      const response = await fetch(`${url2}/api/auth/staff-token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ siteUrl: SITE, token: GOOD_TOKEN }),
+      });
+      const body = (await response.json()) as { signedIn?: boolean; email?: string; role?: string };
+
+      expect(response.status).toBe(200);
+      expect(body.signedIn).toBe(true);
+      expect(body.email).toBe('staff@example.com');
+      expect(body.role).toBe('Owner');
+      expect(response.headers.get('set-cookie') ?? '').toContain(SESSION_COOKIE_NAME);
+    });
+
+    it('rejects a token Ghost does not recognise', async () => {
+      const response = await fetch(`${url2}/api/auth/staff-token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ siteUrl: SITE, token: `${'c'.repeat(24)}:${'d'.repeat(64)}` }),
+      });
+      expect(response.status).toBe(401);
+    });
+
+    it('rejects a malformed token without calling Ghost', async () => {
+      const response = await fetch(`${url2}/api/auth/staff-token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ siteUrl: SITE, token: 'not-a-real-token' }),
+      });
+      expect(response.status).toBe(400);
+    });
+  });
 });

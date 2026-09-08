@@ -6,6 +6,23 @@ import { LoginForm } from './components/LoginForm';
 import { Toolbar } from './components/Toolbar';
 import type { AuthState, Filters, ImageMetadata, ImageSummary, LastSync } from './types';
 
+/** Remembers the last Ghost site signed into, so the field is prefilled next time. */
+const SITE_URL_KEY = 'gib.siteUrl';
+export function rememberSiteUrl(siteUrl: string): void {
+  try {
+    localStorage.setItem(SITE_URL_KEY, siteUrl);
+  } catch {
+    // Private mode / storage disabled — prefill just won't persist.
+  }
+}
+export function recallSiteUrl(): string {
+  try {
+    return localStorage.getItem(SITE_URL_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
+
 const EMPTY_FILTERS: Filters = { query: '', usage: '', unusedOnly: false, internalOnly: false };
 
 export function App() {
@@ -71,8 +88,10 @@ export function App() {
       .catch(() => setLastSync(null));
   }, [auth?.signedIn]);
 
-  async function handleLogin(siteUrl: string, email: string, password: string) {
-    setAuth(await api.login(siteUrl, email, password));
+  async function handleStaffTokenLogin(siteUrl: string, token: string) {
+    const next = await api.staffTokenLogin(siteUrl, token);
+    if (next.signedIn) rememberSiteUrl(next.siteUrl ?? siteUrl);
+    setAuth(next);
   }
 
   async function handleSignOut() {
@@ -107,7 +126,13 @@ export function App() {
   if (!auth) return <main className="loading">Loading…</main>;
 
   if (!auth.signedIn) {
-    return <LoginForm lockedSiteUrl={auth.lockedSiteUrl ?? null} onSubmit={handleLogin} />;
+    return (
+      <LoginForm
+        lockedSiteUrl={auth.lockedSiteUrl ?? null}
+        initialSiteUrl={recallSiteUrl()}
+        onSubmit={handleStaffTokenLogin}
+      />
+    );
   }
 
   return (

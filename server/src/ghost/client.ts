@@ -1,11 +1,38 @@
+import { createHmac } from 'node:crypto';
 import type { GhostResource } from './extract.js';
 import { normalizeSiteUrl } from './urls.js';
 
 const ADMIN_API_VERSION = 'v5.0';
-const SESSION_COOKIE = 'ghost-admin-api-session';
 const PAGE_SIZE = 100;
+/** Ghost staff/admin API keys are `<24 hex>:<64 hex>`. */
+const STAFF_TOKEN = /^([0-9a-f]{24}):([0-9a-f]{64})$/i;
 
 export type GhostResourceType = 'posts' | 'pages';
+
+/**
+ * The subset of `fetch` this client uses. Injectable so sign-in can be tested
+ * without a live Ghost site; production passes the global `fetch`.
+ */
+export type FetchImpl = typeof fetch;
+
+const b64url = (value: string): string => Buffer.from(value).toString('base64url');
+
+/**
+ * Mints the short-lived HS256 JWT Ghost's Admin API expects for key auth
+ * (`Authorization: Ghost <jwt>`), matching `@tryghost/admin-api`: `kid` header,
+ * 5-minute expiry, `/admin/` audience. Done here with `node:crypto` to avoid a
+ * jsonwebtoken dependency.
+ */
+function signAdminToken(id: string, secretHex: string): string {
+  const header = b64url(JSON.stringify({ alg: 'HS256', typ: 'JWT', kid: id }));
+  const now = Math.floor(Date.now() / 1000);
+  const payload = b64url(JSON.stringify({ iat: now, exp: now + 300, aud: '/admin/' }));
+  const body = `${header}.${payload}`;
+  const signature = createHmac('sha256', Buffer.from(secretHex, 'hex'))
+    .update(body)
+    .digest('base64url');
+  return `${body}.${signature}`;
+}
 
 export class GhostApiError extends Error {
   constructor(
@@ -35,25 +62,20 @@ async function readError(response: Response, fallback: string): Promise<GhostApi
 }
 
 /**
- * Talks to a Ghost site's Admin API using *staff credentials*.
- *
- * Ghost offers two Admin API auth schemes: an integration's Admin API key, and
- * the cookie session the Ghost admin client itself uses. We use the session
- * scheme because the product requirement is that people sign in with the email
- * and password they already have as Ghost staff — no integration key to
- * provision, and each user only sees what their own role allows.
- *
- * Ghost checks `Origin` on session-authenticated requests, so every call sends
- * the site's own origin. The session cookie is held server-side (see
- * `sessions.ts`); it never reaches the browser.
+ * Talks to a Ghost site's Admin API *as a staff member* — never as an
+ * integration — using that user's **Staff Access Token** (`id:secret`, from
+ * their Ghost profile page). Every request carries a freshly-signed
+ * `Authorization: Ghost <jwt>`; the token is held server-side (see
+ * `sessions.ts`) and never reaches the browser.
  */
 export class GhostAdminClient {
   readonly siteUrl: string;
   private aliases: string[] = [];
 
-  constructor(
+  private constructor(
     siteUrl: string,
-    private readonly cookie: string,
+    private readonly staffToken: { id: string; secret: string },
+    private readonly fetchImpl: FetchImpl,
   ) {
     this.siteUrl = normalizeSiteUrl(siteUrl);
   }
@@ -70,62 +92,41 @@ export class GhostAdminClient {
   }
 
   /**
-   * Exchanges staff email + password for a Ghost session cookie.
+   * Builds a client from a Ghost Staff Access Token. Bound to that user's role,
+   * so it keeps the "you only see your own" guarantee. The token's validity is
+   * only proven by the first API call the caller makes.
    *
-   * @throws GhostApiError on bad credentials, or when the account has 2FA
-   *   enabled — Ghost then requires a one-time code this flow cannot supply.
+   * @throws GhostApiError when the token is not a well-formed `id:secret` pair.
    */
-  static async login(siteUrl: string, email: string, password: string): Promise<GhostAdminClient> {
-    const base = normalizeSiteUrl(siteUrl);
-    const response = await fetch(`${base}/ghost/api/admin/session/`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept-Version': ADMIN_API_VERSION,
-        Origin: new URL(base).origin,
-      },
-      body: JSON.stringify({ username: email, password }),
-      redirect: 'manual',
-    });
-
-    if (!response.ok) {
-      const error = await readError(response, 'Ghost rejected those credentials.');
-      if (error.code === '2FA_TOKEN_REQUIRED' || error.code === 'Needs2FAError') {
-        throw new GhostApiError(
-          'This Ghost account requires a two-factor code, which this app cannot supply. ' +
-            'Use an account without 2FA, or disable it for this account.',
-          error.status,
-          error.code,
-        );
-      }
-      throw error;
-    }
-
-    const cookie = response.headers
-      .getSetCookie()
-      .map((raw) => raw.split(';')[0] ?? '')
-      .find((pair) => pair.startsWith(`${SESSION_COOKIE}=`));
-
-    if (!cookie) {
+  static fromStaffToken(
+    siteUrl: string,
+    token: string,
+    fetchImpl: FetchImpl = fetch,
+  ): GhostAdminClient {
+    const match = STAFF_TOKEN.exec(token.trim());
+    if (!match) {
       throw new GhostApiError(
-        'Ghost accepted the login but returned no session cookie. Is this URL the Ghost site root?',
-        response.status,
+        'That does not look like a Ghost staff token. Copy the "Staff Access Token" from ' +
+          'your Ghost profile page — it is a long id:secret pair.',
+        400,
       );
     }
-
-    return new GhostAdminClient(base, cookie);
+    return new GhostAdminClient(
+      normalizeSiteUrl(siteUrl),
+      { id: match[1]!, secret: match[2]! },
+      fetchImpl,
+    );
   }
 
   private async get<T>(path: string, params: Record<string, string> = {}): Promise<T> {
     const url = new URL(`${this.siteUrl}/ghost/api/admin/${path}`);
     for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
 
-    const response = await fetch(url, {
+    const response = await this.fetchImpl(url, {
       headers: {
         Accept: 'application/json',
         'Accept-Version': ADMIN_API_VERSION,
-        Origin: new URL(this.siteUrl).origin,
-        Cookie: this.cookie,
+        Authorization: `Ghost ${signAdminToken(this.staffToken.id, this.staffToken.secret)}`,
       },
       redirect: 'manual',
     });
@@ -147,7 +148,7 @@ export class GhostAdminClient {
     return { email: user?.email ?? '', role: user?.roles?.[0]?.name ?? 'Unknown' };
   }
 
-  /** Confirms the session is still valid and returns the site's own metadata. */
+  /** Confirms the token is valid and returns the site's own metadata. */
   async getSite(): Promise<{ title: string; url: string; version: string }> {
     const body = await this.get<{ site: { title: string; url: string; version: string } }>('site/');
     if (body.site?.url) {
