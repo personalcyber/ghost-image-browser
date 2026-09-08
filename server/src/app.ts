@@ -15,11 +15,18 @@ export function createApp(
   db: Database,
   config: Config,
   sessions = new SessionStore(config.sessionTtlMs),
+  // Lets `index.ts` mount the static UI + SPA fallback *before* the error
+  // handler, so a failure serving those still produces a JSON 500 rather than
+  // Express's default HTML handler.
+  mountExtra?: (app: express.Express) => void,
 ) {
   const app = express();
   const context: AppContext = { db, config, sessions };
 
   app.disable('x-powered-by');
+  // Governs `req.secure` / `req.protocol` behind a TLS-terminating proxy, which
+  // is what decides whether the session cookie gets the `Secure` attribute.
+  app.set('trust proxy', config.trustProxy);
   app.use(express.json({ limit: '256kb' }));
 
   // In development the UI is served by Vite on another origin, so credentialed
@@ -48,9 +55,25 @@ export function createApp(
 
   app.use('/api', (_req, res) => res.status(404).json({ error: 'Unknown endpoint.' }));
 
-  const onError: ErrorRequestHandler = (error, _req, res, _next) => {
-    console.error('[api] unhandled error', error);
-    res.status(500).json({ error: 'Something went wrong handling that request.' });
+  mountExtra?.(app);
+
+  const onError: ErrorRequestHandler = (error, _req, res, next) => {
+    if (res.headersSent) return next(error);
+
+    // `express.json` and other middleware attach an HTTP status to their errors
+    // (a bad request body is 400, not a server fault); only a missing/5xx
+    // status is a genuine "something went wrong on our side".
+    const raw: unknown =
+      (error as { status?: unknown; statusCode?: unknown })?.status ??
+      (error as { statusCode?: unknown })?.statusCode;
+    const status = typeof raw === 'number' && raw >= 400 && raw < 600 ? raw : 500;
+
+    if (status >= 500) console.error('[api] unhandled error', error);
+    const exposed =
+      status < 500 && (error as { expose?: boolean })?.expose && error instanceof Error
+        ? error.message
+        : 'Something went wrong handling that request.';
+    res.status(status).json({ error: exposed });
   };
   app.use(onError);
 

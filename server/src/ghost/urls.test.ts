@@ -101,4 +101,34 @@ describe('canonicalize', () => {
     expect(image?.fileName).toBe('My Photo.JPG');
     expect(image?.extension).toBe('jpg');
   });
+
+  it('keeps cataloguing when a file name contains a bare percent sign', () => {
+    // A stray '%' is not a valid percent-escape; decoding it must not throw and
+    // abort the whole sync — the image is still catalogued, name left as-is.
+    const image = canonicalize(`${SITE}/content/images/2024/01/50%off-banner.jpg`, SITE, true);
+    expect(image).not.toBeNull();
+    expect(image?.fileName).toBe('50%off-banner.jpg');
+  });
+
+  it('does not treat a sibling path as internal on a subdirectory install', () => {
+    // Ghost lives at /blog; /blogroll merely shares the prefix and is a
+    // different site's content, so its images must stay external.
+    const image = canonicalize(
+      'https://example.com/blogroll/content/images/2024/01/x.jpg',
+      'https://example.com/blog',
+      true,
+    );
+    expect(image?.internal).toBe(false);
+    expect(image?.path).toBe('https://example.com/blogroll/content/images/2024/01/x.jpg');
+  });
+
+  it('still treats the subdirectory install root itself as internal', () => {
+    const exact = canonicalize('https://example.com/blog', 'https://example.com/blog', true);
+    const under = canonicalize(
+      'https://example.com/blog/content/images/2024/01/a.jpg',
+      'https://example.com/blog',
+    );
+    expect(exact?.internal).toBe(true);
+    expect(under?.internal).toBe(true);
+  });
 });

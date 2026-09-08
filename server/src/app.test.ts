@@ -15,17 +15,23 @@ describe('HTTP API', () => {
   let db: Database;
   let server: Server;
   let baseUrl: string;
+  let sessions: SessionStore;
   let sessionCookie: string;
   let imageId: number;
 
   beforeEach(async () => {
     db = openDatabase(':memory:');
     const config = loadConfig({ DATABASE_PATH: ':memory:' } as NodeJS.ProcessEnv);
-    const sessions = new SessionStore(config.sessionTtlMs);
+    sessions = new SessionStore(config.sessionTtlMs);
 
     // A signed-in session without a live Ghost site: only the routes that call
     // out to Ghost need the real client, and those are not exercised here.
-    const session = sessions.create(SITE, 'staff@example.com', {} as GhostAdminClient);
+    const session = sessions.create(
+      SITE,
+      'staff@example.com',
+      {} as GhostAdminClient,
+      'Administrator',
+    );
     sessionCookie = `${SESSION_COOKIE_NAME}=${session.id}`;
 
     imageId = upsertImage(
@@ -42,6 +48,7 @@ describe('HTTP API', () => {
 
   afterEach(async () => {
     await new Promise((resolve) => server.close(resolve));
+    sessions.stop();
     db.close();
   });
 
@@ -93,5 +100,37 @@ describe('HTTP API', () => {
   it('reports login state to an anonymous visitor', async () => {
     const response = await fetch(`${baseUrl}/api/auth/me`);
     expect(await response.json()).toEqual({ signedIn: false, lockedSiteUrl: null });
+  });
+
+  it('answers a malformed JSON body with 400, not 500', async () => {
+    const response = await fetch(`${baseUrl}/api/images/${imageId}/metadata`, {
+      method: 'PUT',
+      headers: { Cookie: sessionCookie, 'Content-Type': 'application/json' },
+      body: '{ this is not json',
+    });
+    expect(response.status).toBe(400);
+  });
+
+  it('refuses a sync from a role that only sees its own posts', async () => {
+    const limited = sessions.create(SITE, 'author@example.com', {} as GhostAdminClient, 'Author');
+    const response = await fetch(`${baseUrl}/api/sync`, {
+      method: 'POST',
+      headers: { Cookie: `${SESSION_COOKIE_NAME}=${limited.id}` },
+    });
+    expect(response.status).toBe(403);
+  });
+
+  it('does not trust proxy forwarding headers unless configured to', () => {
+    const app = createApp(db, loadConfig({} as NodeJS.ProcessEnv), new SessionStore(1000));
+    expect(app.get('trust proxy')).toBeFalsy();
+  });
+
+  it('honours TRUST_PROXY so req.secure can follow X-Forwarded-Proto', () => {
+    const app = createApp(
+      db,
+      loadConfig({ TRUST_PROXY: 'true' } as NodeJS.ProcessEnv),
+      new SessionStore(1000),
+    );
+    expect(app.get('trust proxy')).toBe(true);
   });
 });

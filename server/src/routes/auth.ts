@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { canRunFullSync } from '../catalog/roles.js';
 import { GhostAdminClient, GhostApiError } from '../ghost/client.js';
 import { normalizeSiteUrl } from '../ghost/urls.js';
 import { SESSION_COOKIE_NAME } from '../sessions.js';
@@ -20,7 +21,13 @@ export function authRoutes({ config, sessions }: AppContext): Router {
       res.json({ signedIn: false, lockedSiteUrl: config.ghostUrl });
       return;
     }
-    res.json({ signedIn: true, siteUrl: session.siteUrl, email: session.email });
+    res.json({
+      signedIn: true,
+      siteUrl: session.siteUrl,
+      email: session.email,
+      role: session.role,
+      canSync: canRunFullSync(session.role),
+    });
   });
 
   router.post(
@@ -55,15 +62,26 @@ export function authRoutes({ config, sessions }: AppContext): Router {
           parsed.data.password,
         );
         const site = await client.getSite();
-        const session = sessions.create(siteUrl, parsed.data.email, client);
+        const { role } = await client.getCurrentUser();
+        const session = sessions.create(siteUrl, parsed.data.email, client, role);
 
         res.cookie(SESSION_COOKIE_NAME, session.id, {
           httpOnly: true,
           sameSite: 'lax',
+          // Correct only because `app.set('trust proxy', …)` is configured; see
+          // config.ts. Behind a TLS-terminating proxy this is what keeps the
+          // session cookie from going out without `Secure`.
           secure: req.secure,
           maxAge: config.sessionTtlMs,
         });
-        res.json({ signedIn: true, siteUrl, email: parsed.data.email, site });
+        res.json({
+          signedIn: true,
+          siteUrl,
+          email: parsed.data.email,
+          role,
+          canSync: canRunFullSync(role),
+          site,
+        });
       } catch (error) {
         if (error instanceof GhostApiError) {
           // Ghost answers a bad password with 422; surface it as 401 so the UI

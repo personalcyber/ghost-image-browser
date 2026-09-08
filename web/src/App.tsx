@@ -16,6 +16,7 @@ export function App() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [lastSync, setLastSync] = useState<LastSync | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -27,6 +28,7 @@ export function App() {
 
   const refresh = useCallback(async () => {
     try {
+      // Always the first page: changing a filter resets the list.
       const { images: loaded, total: count } = await api.images(filters);
       setImages(loaded);
       setTotal(count);
@@ -38,6 +40,21 @@ export function App() {
       else setError(cause instanceof Error ? cause.message : 'Could not load the catalog.');
     }
   }, [filters]);
+
+  const loadMore = useCallback(async () => {
+    setLoadingMore(true);
+    try {
+      const { images: page, total: count } = await api.images(filters, { offset: images.length });
+      setImages((current) => [...current, ...page]);
+      setTotal(count);
+      setError(null);
+    } catch (cause) {
+      if (cause instanceof ApiError && cause.status === 401) setAuth({ signedIn: false });
+      else setError(cause instanceof Error ? cause.message : 'Could not load more images.');
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [filters, images.length]);
 
   useEffect(() => {
     if (!auth?.signedIn) return;
@@ -100,6 +117,7 @@ export function App() {
         onChange={setFilters}
         onSync={() => void handleSync()}
         syncing={syncing}
+        canSync={auth.canSync ?? true}
         lastSync={lastSync}
         total={total}
         shown={images.length}
@@ -115,11 +133,23 @@ export function App() {
       )}
 
       <div className="layout__body">
-        <ImageGrid
-          images={images}
-          selectedId={selectedId}
-          onSelect={(image) => setSelectedId(image.id)}
-        />
+        <div className="layout__catalog">
+          <ImageGrid
+            images={images}
+            selectedId={selectedId}
+            onSelect={(image) => setSelectedId(image.id)}
+          />
+          {images.length < total && (
+            <button
+              type="button"
+              className="ghost load-more"
+              onClick={() => void loadMore()}
+              disabled={loadingMore}
+            >
+              {loadingMore ? 'Loading…' : `Load more (${total - images.length} left)`}
+            </button>
+          )}
+        </div>
         {selectedId !== null && (
           <ImageDetail
             imageId={selectedId}

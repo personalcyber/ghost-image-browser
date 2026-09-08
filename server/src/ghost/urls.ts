@@ -57,6 +57,25 @@ export function normalizeSiteUrl(siteUrl: string): string {
   return `${parsed.origin}${path}`;
 }
 
+/**
+ * `decodeURIComponent` that never throws. Hand-written HTML and third-party CDNs
+ * occasionally carry a bare `%` (a "50%off" file name) which is not a valid
+ * escape; that must cost us the pretty name for one image, not abort the sync.
+ */
+function safeDecode(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+/** True when `pathname` is `base` itself or sits beneath it as a path segment. */
+function isUnderPath(pathname: string, base: string): boolean {
+  if (base === '') return true;
+  return pathname === base || pathname.startsWith(`${base}/`);
+}
+
 function extensionOf(pathname: string): string {
   const fileName = pathname.slice(pathname.lastIndexOf('/') + 1);
   const dot = fileName.lastIndexOf('.');
@@ -118,7 +137,7 @@ export function canonicalize(
     const candidateUrl = new URL(`${candidate}/`);
     return (
       parsed.host === candidateUrl.host &&
-      parsed.pathname.startsWith(candidateUrl.pathname.replace(/\/$/, ''))
+      isUnderPath(parsed.pathname, candidateUrl.pathname.replace(/\/$/, ''))
     );
   });
 
@@ -127,7 +146,7 @@ export function canonicalize(
 
   if (!isGhostUpload && !assumeImage && !IMAGE_EXTENSIONS.has(extension)) return null;
 
-  const fileName = decodeURIComponent(parsed.pathname.slice(parsed.pathname.lastIndexOf('/') + 1));
+  const fileName = safeDecode(parsed.pathname.slice(parsed.pathname.lastIndexOf('/') + 1));
 
   return {
     // An internal image is keyed and served by path off the signed-in host, so

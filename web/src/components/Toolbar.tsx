@@ -7,6 +7,8 @@ interface Props {
   onChange: (filters: Filters) => void;
   onSync: () => void;
   syncing: boolean;
+  /** False when the signed-in Ghost role is not allowed to run a sync. */
+  canSync: boolean;
   lastSync: LastSync | null;
   total: number;
   shown: number;
@@ -50,6 +52,7 @@ export function Toolbar({
   onChange,
   onSync,
   syncing,
+  canSync,
   lastSync,
   total,
   shown,
@@ -70,7 +73,17 @@ export function Toolbar({
           </p>
         </div>
         <div className="toolbar__actions">
-          <button type="button" className="primary" onClick={onSync} disabled={syncing}>
+          <button
+            type="button"
+            className="primary"
+            onClick={onSync}
+            disabled={syncing || !canSync}
+            title={
+              canSync
+                ? undefined
+                : 'Your Ghost role can only see its own posts, so it cannot run a catalog sync.'
+            }
+          >
             {syncing ? 'Scanning site…' : 'Sync from Ghost'}
           </button>
           <button type="button" className="ghost" onClick={onSignOut}>

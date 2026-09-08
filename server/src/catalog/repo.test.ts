@@ -1,7 +1,14 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { openDatabase, type Database } from '../db/index.js';
 import { canonicalize } from '../ghost/urls.js';
-import { getImage, listImages, saveMetadata, upsertImage, upsertReference } from './repo.js';
+import {
+  countImages,
+  getImage,
+  listImages,
+  saveMetadata,
+  upsertImage,
+  upsertReference,
+} from './repo.js';
 
 const SITE = 'https://blog.example.com';
 const NOW = '2026-01-01T00:00:00.000Z';
@@ -50,6 +57,25 @@ describe('catalog queries', () => {
 
     expect(listImages(db, { siteUrl: SITE, query: 'founder' })).toHaveLength(1);
     expect(listImages(db, { siteUrl: SITE, query: 'chart' })).toHaveLength(1);
+  });
+
+  it('treats % and _ in a search query as literals, not wildcards', () => {
+    seed(db, '/content/images/50%25-off.jpg');
+    seed(db, '/content/images/50-percent-off.jpg');
+
+    const hits = listImages(db, { siteUrl: SITE, query: '50%-off' });
+    expect(hits.map((image) => image.fileName)).toEqual(['50%-off.jpg']);
+  });
+
+  it('counts only the images that match the active filters', () => {
+    seed(db, '/content/images/used.jpg', { referenced: true });
+    seed(db, '/content/images/orphan.jpg');
+    upsertImage(db, SITE, canonicalize('https://images.unsplash.com/photo-1.jpg', SITE)!, NOW);
+
+    expect(countImages(db, { siteUrl: SITE })).toBe(3);
+    expect(countImages(db, { siteUrl: SITE, unusedOnly: true })).toBe(2);
+    expect(countImages(db, { siteUrl: SITE, internalOnly: true })).toBe(2);
+    expect(countImages(db, { siteUrl: SITE, query: 'orphan' })).toBe(1);
   });
 
   it('excludes third-party images when asked', () => {

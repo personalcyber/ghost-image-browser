@@ -134,6 +134,19 @@ export class GhostAdminClient {
     return (await response.json()) as T;
   }
 
+  /**
+   * The signed-in user's primary role name (`Owner`, `Administrator`, `Editor`,
+   * `Author`, `Contributor`). Used to decide whether this session may run a
+   * full-site sync — see `catalog/roles.ts`.
+   */
+  async getCurrentUser(): Promise<{ email: string; role: string }> {
+    const body = await this.get<{
+      users?: Array<{ email?: string; roles?: Array<{ name?: string }> }>;
+    }>('users/me/', { include: 'roles' });
+    const user = body.users?.[0];
+    return { email: user?.email ?? '', role: user?.roles?.[0]?.name ?? 'Unknown' };
+  }
+
   /** Confirms the session is still valid and returns the site's own metadata. */
   async getSite(): Promise<{ title: string; url: string; version: string }> {
     const body = await this.get<{ site: { title: string; url: string; version: string } }>('site/');

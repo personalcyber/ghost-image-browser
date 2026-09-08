@@ -238,6 +238,11 @@ a {
   align-content: start;
 }
 
+.load-more {
+  display: block;
+  margin: 1.5rem auto 0;
+}
+
 .card {
   width: 100%;
   text-align: left;

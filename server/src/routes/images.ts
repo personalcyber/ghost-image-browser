@@ -37,18 +37,17 @@ export function imageRoutes({ db, sessions }: AppContext): Router {
       }
       const siteUrl = req.session!.siteUrl;
       const { q, usage, unused, internal, limit, offset } = parsed.data;
+      const filter = {
+        siteUrl,
+        query: q,
+        usage,
+        unusedOnly: unused === 'true',
+        internalOnly: internal === 'true',
+      };
 
       res.json({
-        total: countImages(db, siteUrl),
-        images: listImages(db, {
-          siteUrl,
-          query: q,
-          usage,
-          unusedOnly: unused === 'true',
-          internalOnly: internal === 'true',
-          limit,
-          offset,
-        }),
+        total: countImages(db, filter),
+        images: listImages(db, { ...filter, limit, offset }),
       });
     }),
   );

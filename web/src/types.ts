@@ -66,6 +66,9 @@ export interface AuthState {
   signedIn: boolean;
   siteUrl?: string;
   email?: string;
+  role?: string;
+  /** Whether this Ghost role is allowed to run a sync — see server roles.ts. */
+  canSync?: boolean;
   lockedSiteUrl?: string | null;
 }
 

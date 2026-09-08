@@ -215,13 +215,29 @@ export function pruneStaleReferences(db: Database, siteUrl: string, syncRunId: n
   return Number(result.changes);
 }
 
-export function listImages(db: Database, options: ListImagesOptions): ImageSummary[] {
+/** Escapes the LIKE metacharacters so a user's `%` or `_` matches literally. */
+const LIKE_ESCAPE = '\\';
+function likeContains(term: string): string {
+  return `%${term.replace(/[\\%_]/g, (char) => LIKE_ESCAPE + char)}%`;
+}
+
+/**
+ * Builds the shared WHERE clause for `listImages` and `countImages` so the
+ * catalog total always reflects the same filters as the rows on screen.
+ */
+function buildImageFilter(options: Omit<ListImagesOptions, 'limit' | 'offset'>): {
+  clause: string;
+  params: Array<string | number>;
+} {
   const where: string[] = ['i.site_url = ?'];
   const params: Array<string | number> = [options.siteUrl];
 
   if (options.query) {
-    where.push('(i.file_name LIKE ? OR i.path LIKE ? OR m.notes LIKE ? OR m.caption LIKE ?)');
-    const like = `%${options.query}%`;
+    where.push(
+      `(i.file_name LIKE ? ESCAPE '${LIKE_ESCAPE}' OR i.path LIKE ? ESCAPE '${LIKE_ESCAPE}'` +
+        ` OR m.notes LIKE ? ESCAPE '${LIKE_ESCAPE}' OR m.caption LIKE ? ESCAPE '${LIKE_ESCAPE}')`,
+    );
+    const like = likeContains(options.query);
     params.push(like, like, like, like);
   }
   if (options.usage) {
@@ -233,25 +249,36 @@ export function listImages(db: Database, options: ListImagesOptions): ImageSumma
   }
   if (options.internalOnly) where.push('i.is_internal = 1');
 
+  return { clause: where.join(' AND '), params };
+}
+
+export function listImages(db: Database, options: ListImagesOptions): ImageSummary[] {
+  const { clause, params } = buildImageFilter(options);
+
   const limit = Math.min(Math.max(options.limit ?? 100, 1), 500);
   const offset = Math.max(options.offset ?? 0, 0);
-  params.push(limit, offset);
 
   const rows = db
     .prepare(
-      `${SELECT_IMAGE} WHERE ${where.join(' AND ')}
+      `${SELECT_IMAGE} WHERE ${clause}
        ORDER BY reference_count DESC, i.file_name ASC
        LIMIT ? OFFSET ?`,
     )
-    .all(...params) as unknown as ImageRow[];
+    .all(...params, limit, offset) as unknown as ImageRow[];
 
   return rows.map(toSummary);
 }
 
-export function countImages(db: Database, siteUrl: string): number {
+export function countImages(
+  db: Database,
+  options: Omit<ListImagesOptions, 'limit' | 'offset'>,
+): number {
+  const { clause, params } = buildImageFilter(options);
   const row = db
-    .prepare('SELECT COUNT(*) AS total FROM images WHERE site_url = ?')
-    .get(siteUrl) as { total: number };
+    .prepare(
+      `SELECT COUNT(*) AS total FROM images i LEFT JOIN image_metadata m ON m.image_id = i.id WHERE ${clause}`,
+    )
+    .get(...params) as { total: number };
   return row.total;
 }
 

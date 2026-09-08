@@ -55,7 +55,17 @@ export async function syncCatalog(
   const seenImages = new Set<string>();
   let referencesFound = 0;
 
+  // The scan issues thousands of writes rebuilding `images` and
+  // `image_references`. One transaction makes that a single commit (fast) and,
+  // more importantly, atomic: a crash or a Ghost error partway through rolls
+  // the catalog back to its previous state rather than leaving it half-rebuilt
+  // from two runs. The `sync_runs` bookkeeping stays outside so a failed run is
+  // still recorded.
+  let inTransaction = false;
   try {
+    db.exec('BEGIN');
+    inTransaction = true;
+
     for (const { type, singular } of RESOURCE_TYPES) {
       for await (const batch of source.browse(type)) {
         for (const resource of batch) {
@@ -85,6 +95,10 @@ export async function syncCatalog(
     }
 
     const staleReferencesRemoved = pruneStaleReferences(db, siteUrl, runId);
+
+    db.exec('COMMIT');
+    inTransaction = false;
+
     const finishedAt = new Date().toISOString();
 
     db.prepare(
@@ -105,6 +119,14 @@ export async function syncCatalog(
       staleReferencesRemoved,
     };
   } catch (error) {
+    if (inTransaction) {
+      try {
+        db.exec('ROLLBACK');
+      } catch {
+        // The transaction may already be undone (e.g. SQLite auto-rollback on a
+        // constraint failure); the recorded run status is what matters next.
+      }
+    }
     db.prepare(
       `UPDATE sync_runs SET finished_at = ?, status = 'error', error = ? WHERE id = ?`,
     ).run(new Date().toISOString(), error instanceof Error ? error.message : String(error), runId);

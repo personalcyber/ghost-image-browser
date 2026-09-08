@@ -36,6 +36,18 @@ export interface ExtractedImage {
 const IMG_OR_SOURCE_TAG = /<(?:img|source)\b[^>]*>/gi;
 const ATTRIBUTE = /\b(src|srcset|data-src|data-srcset)\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/gi;
 
+/**
+ * `<video>`/`<audio>` blocks, removed before the tag scan. A video card's
+ * nested `<source>` points at an mp4, and the HTML path assumes everything it
+ * finds is an image — so those `<source>` elements have to go before they reach
+ * the catalogue. A `<source>` left over after this is inside a `<picture>` and
+ * genuinely is an image.
+ */
+const MEDIA_BLOCK = /<(video|audio)\b[^>]*>[\s\S]*?<\/\1>/gi;
+
+/** `type="video/mp4"` on a bare `<source>` — anything not `image/*` is skipped. */
+const TYPE_ATTRIBUTE = /\btype\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/i;
+
 /** Pulls the URLs out of one `srcset` value, dropping the width/density descriptors. */
 export function parseSrcset(value: string): string[] {
   return value
@@ -47,7 +59,12 @@ export function parseSrcset(value: string): string[] {
 /** Collects every image URL referenced by `<img>`/`<source>` tags in rendered HTML. */
 export function extractHtmlImageUrls(html: string): string[] {
   const urls: string[] = [];
-  for (const tag of html.match(IMG_OR_SOURCE_TAG) ?? []) {
+  for (const tag of html.replace(MEDIA_BLOCK, ' ').match(IMG_OR_SOURCE_TAG) ?? []) {
+    if (/^<source\b/i.test(tag)) {
+      const type = TYPE_ATTRIBUTE.exec(tag);
+      const value = type?.[2] ?? type?.[3] ?? type?.[4];
+      if (value && !/^image\//i.test(value)) continue;
+    }
     ATTRIBUTE.lastIndex = 0;
     let attr: RegExpExecArray | null;
     while ((attr = ATTRIBUTE.exec(tag)) !== null) {

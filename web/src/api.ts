@@ -8,6 +8,9 @@ import type {
   SyncResult,
 } from './types';
 
+/** Rows fetched per catalog page; "Load more" pulls the next page. */
+export const PAGE_SIZE = 100;
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -53,13 +56,15 @@ export const api = {
 
   sync: () => request<{ result: SyncResult }>('/sync', { method: 'POST' }),
 
-  images: (filters: Filters) => {
+  /** One page of the catalog. `total` reflects the same filters, not the whole site. */
+  images: (filters: Filters, { limit = PAGE_SIZE, offset = 0 } = {}) => {
     const params = new URLSearchParams();
     if (filters.query) params.set('q', filters.query);
     if (filters.usage) params.set('usage', filters.usage);
     if (filters.unusedOnly) params.set('unused', 'true');
     if (filters.internalOnly) params.set('internal', 'true');
-    params.set('limit', '200');
+    params.set('limit', String(limit));
+    params.set('offset', String(offset));
     return request<{ total: number; images: ImageSummary[] }>(`/images?${params}`);
   },
 

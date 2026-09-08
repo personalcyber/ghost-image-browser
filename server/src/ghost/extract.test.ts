@@ -30,6 +30,21 @@ describe('extractHtmlImageUrls', () => {
       '/b.jpg',
     ]);
   });
+
+  it('ignores <source> elements inside a video card', () => {
+    const html = `<figure class="kg-card kg-video-card">
+      <video src="/content/media/2024/01/clip.mp4">
+        <source src="/content/media/2024/01/clip.mp4" type="video/mp4">
+      </video>
+    </figure>`;
+    expect(extractHtmlImageUrls(html)).toEqual([]);
+  });
+
+  it('ignores a bare <source> whose type is not an image', () => {
+    expect(extractHtmlImageUrls(`<source src="/content/media/a.mp3" type="audio/mpeg">`)).toEqual(
+      [],
+    );
+  });
 });
 
 describe('extractImages', () => {
@@ -99,6 +114,11 @@ describe('extractImages', () => {
       root: { children: [{ type: 'video', src: '__GHOST_URL__/content/media/2024/01/clip.mp4' }] },
     });
     expect(extractImages({ id: 'p1', lexical }, SITE)).toEqual([]);
+  });
+
+  it('does not catalogue an mp4 from a rendered <video> card as an image', () => {
+    const html = `<figure class="kg-card kg-video-card"><video src="/content/media/2024/01/clip.mp4"><source src="/content/media/2024/01/clip.mp4" type="video/mp4"></video></figure>`;
+    expect(extractImages({ id: 'p1', html }, SITE)).toEqual([]);
   });
 
   it('still reads mobiledoc posts written in the old editor', () => {

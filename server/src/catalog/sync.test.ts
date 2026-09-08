@@ -120,6 +120,21 @@ describe('syncCatalog', () => {
     expect(detail.metadata.tags).toEqual(['brand', 'hero']);
   });
 
+  it('rolls back the whole scan when a later page fails mid-run', async () => {
+    const source: CatalogSource = {
+      siteUrl: SITE,
+      async *browse(type: GhostResourceType) {
+        if (type !== 'posts') return;
+        yield [post('p1', { feature_image: `${SITE}/content/images/2024/01/a.jpg` })];
+        throw new Error('Ghost timed out mid-scan');
+      },
+    };
+
+    await expect(syncCatalog(db, source)).rejects.toThrow('Ghost timed out');
+    // The first post's image was written before the failure; it must not survive.
+    expect(listImages(db, { siteUrl: SITE })).toEqual([]);
+  });
+
   it('records a failed run instead of leaving it marked running', async () => {
     const failing: CatalogSource = {
       siteUrl: SITE,
